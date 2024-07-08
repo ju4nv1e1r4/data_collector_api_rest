@@ -6,15 +6,19 @@ import numpy as np
 import schedule
 import time
 import os
+from config import api_info
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
 
 # Função e
 def fetch():
     # Requisição
     base_url = "https://api.dooki.com.br/v2"
 
-    alias = 'seu_alias_aqui'
-    user_token = "seu_token_aqui"
-    user_secret_key = "sua_secret_key_aqui"
+    alias = api_info.alias
+    user_token = api_info.user_token
+    user_secret_key = api_info.user_secret_key
 
     headers = {
         "User-Token": user_token,
@@ -122,6 +126,34 @@ def fetch():
     df2 = df2.applymap(lambda x: x.replace('R$ ', '') if isinstance(x, str) else x)
 
     df2.to_csv('csv/table_carts.csv', index=False)
+
+    # escopo
+    scope = ["https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.file",
+            "https://www.googleapis.com/auth/drive"]
+
+    # autenticação
+    creds = ServiceAccountCredentials.from_json_keyfile_name(api_info.credentials, scope)
+    client = gspread.authorize(creds)
+
+    # leitura do CSV
+    df3 = pd.read_csv('csv/table_carts.csv')
+
+    # tratamento adicional (dados nulos e tendendo ao infinito)
+    df3.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df3.fillna(0, inplace=True)
+
+    # atualizando a planilha
+    spreadsheet_id = api_info.spreadsheetid
+    sheet = client.open_by_key(spreadsheet_id)
+
+    # selecionando a primeira aba da planilha (0)
+    worksheet = sheet.get_worksheet(0)
+
+    # enviando os dados do csv para a planilha 'Carrinhos_Abandonados'
+    worksheet.update([df3.columns.values.tolist()] + df3.values.tolist())
+
 
 # Agendamento da Execução
 schedule.every(1).minutes.do(fetch)
