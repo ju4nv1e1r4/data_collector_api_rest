@@ -1,164 +1,137 @@
 # Bibliotecas
 import requests
 import pandas as pd
-import json
 import numpy as np
-import schedule
-import time
+import json
 import os
-from config import api_info
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from config import dados_api
 
+# Requisição
+base_url = "https://api.dooki.com.br/v2"
 
-# Função e
-def fetch():
-    # Requisição
-    base_url = "https://api.dooki.com.br/v2"
+alias = dados_api.alias
+user_token = dados_api.user_token
+user_secret_key = dados_api.user_secret_key
 
-    alias = api_info.alias
-    user_token = api_info.user_token
-    user_secret_key = api_info.user_secret_key
+headers = {
+    "User-Token": user_token,
+    "User-Secret-Key": user_secret_key,
+    "Content-Type": "application/json"
+}
 
-    headers = {
-        "User-Token": user_token,
-        "User-Secret-Key": user_secret_key,
-        "Content-Type": "application/json"
+endpoint = f"/{alias}/orders"
+
+all_orders = []
+
+page = 1
+while True:
+    params = {
+        "page": page,
+        "limit": 50  
     }
+    response = requests.get(f"{base_url}{endpoint}", headers=headers, params=params)
 
-    endpoint = f"/{alias}/checkout/carts"
+    if response.status_code == 200:
+        orders = response.json()
 
-    all_orders = []
-
-    page = 1
-    while True:
-        params = {
-            "page": page,
-            "limit": 50  # da pra ajustar esse limite conforme for necessário
-        }
-        response = requests.get(f"{base_url}{endpoint}", headers=headers, params=params)
-
-        if response.status_code == 200:
-            orders = response.json()
-
-            if not orders['data']:
-                break
-
-            all_orders.extend(orders['data'])
-
-            page += 1
-        else:
-            print(f"Erro: {response.status_code}")
-            print(response.text)
+        if not orders['data']:
             break
 
-    print(f"Total de carrinhos coletados: {len(all_orders)}")
+        all_orders.extend(orders['data'])
 
-    # salvando em um json
-    with open("json/all_orders.json", 'w') as file:
-        json.dump(all_orders, file, indent=4)
-    print("Tudo salvo em all_orders.json")
+        page += 1
+    else:
+        print(f"Erro: {response.status_code}")
+        print(response.text)
+        break
 
-    # tratamento do json
-    def extract_keys(d, parent_key=''):
-        items = {}
-        for k, v in d.items():
-            new_key = f"{parent_key}.{k}" if parent_key else k
-            if isinstance(v, dict):
-                items.update(extract_keys(v, new_key))
-            else:
-                items[new_key] = v
-        return items
+print(f"Total de pedidos coletados: {len(all_orders)}")
 
-    orders_list = []
+# Salvar em um JSON
+if not os.path.exists("json"):
+    os.makedirs("json")
 
-    for order in all_orders:
-        order_info = extract_keys(order)
-        orders_list.append(order_info)
+with open("json/pedidos.json", 'w') as file:
+    json.dump(all_orders, file, indent=4)
+print("Tudo salvo em pedidos.json")
 
-    # Para csv
-    df = pd.DataFrame(orders_list)
+with open('json/pedidos.json') as file:
+    all_orders = json.load(file)
 
-    df.to_csv('csv/all_orders_complete.csv', index=False)
-    print("Tudo salvo em csv/all_orders_complete.csv")
+# Extrair chaves de dicionários aninhados
+def extract_keys(d, parent_key=''):
+    items = {}
+    for k, v in d.items():
+        new_key = f"{parent_key}.{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.update(extract_keys(v, new_key))
+        elif isinstance(v, list):
+            for i, item in enumerate(v):
+                if isinstance(item, dict):
+                    items.update(extract_keys(item, f"{new_key}.{i}"))
+                else:
+                    items[f"{new_key}.{i}"] = item
+        else:
+            items[new_key] = v
+    return items
 
-    # Tratamento
-    df = pd.read_csv('csv/all_orders_complete.csv')
+orders_list = []
 
-    df2 = df.drop(columns=[ 'merchant_id', 'token',
-                            'has_recommendation', 'is_upsell',
-                            'totalizers.discount','totalizers.subtotal',
-                            'totalizers.shipment', 'totalizers.shipment_original_value',
-                            'totalizers.shipment_discount_value',
-                            'totalizers.progressive_discount_value',
-                            'totalizers.combos_discount_value',
-                            'totalizers.shipment_formated', 'totalizers.subtotal_formated',
-                            'totalizers.discount_formated', 'tracking_data.name', 'tracking_data.email',
-                            'unauth_simulate_url','utm_source', 'utm_campaign', 'utm_content', 'utm_term',
-                            'utm_medium','last_transaction_status','created_at.timezone_type',
-                            'created_at.timezone','updated_at.date', 'updated_at.timezone_type',
-                            'updated_at.timezone', 'customer.data.id',
-                            'customer.data.merchant_id', 'customer.data.marketplace_id',
-                            'customer.data.cluster_id', 'customer.data.active',
-                            'customer.data.type','customer.data.name','customer.data.cnpj',
-                            'customer.data.birthday','customer.data.phone.full_number',
-                            'customer.data.phone.area_code', 'customer.data.phone.number',
-                            'customer.data.social_driver', 'customer.data.social_id','customer.data.newsletter',
-                            'customer.data.whatsapp','customer.data.utm_source',
-                            'customer.data.utm_campaign','customer.data.ip','customer.data.notes',
-                            'customer.data.token','customer.data.login_url','customer.data.anonymized',
-                            'customer.data.created_at.date','customer.data.created_at.timezone_type',
-                            'customer.data.created_at.timezone','customer.data.updated_at.date',
-                            'customer.data.updated_at.timezone_type','customer.data.updated_at.timezone',
-                            'items.data','transactions.data','spreadsheet.data.customer_phone',
-                            'spreadsheet.data.last_order_date','spreadsheet.data.categories',
-                             'spreadsheet.data.brands','spreadsheet.data.purchase_url',
-                             'metadata.data','search.data.has_shipment_service','search.data.has_address',
-                             'search.data.has_customer','search.data.has_refused_payment','search.data.abandoned_step',
-                             'search.data.count_recover_mail_sent','search.data.created_at','search.data.updated_at',
-                             'emails.data','last_transaction_status.alias','last_transaction_status.name','customer.data.generic_name',
-                             'totalizers.total', 'customer.data.state_registration', 'customer.data.razao_social'])
+for order in all_orders:
+    order_info = extract_keys(order)
+    orders_list.append(order_info)
 
-    df2 = df2.fillna('null')
+# Converte em CSV
+df = pd.DataFrame(orders_list)
 
-    df2['customer.data.first_name'] = df2['customer.data.first_name'].apply(lambda x: x.capitalize() if isinstance(x, str) else x)
+if not os.path.exists("csv"):
+    os.makedirs("csv")
 
-    df2 = df2.applymap(lambda x: x.replace('R$ ', '') if isinstance(x, str) else x)
+df.to_csv('csv/pedidos_complete.csv', index=False)
+print("Tudo salvo em csv/pedidos_complete.csv")
 
-    df2.to_csv('csv/table_carts.csv', index=False)
+# Definir o escopo
+scope = ["https://spreadsheets.google.com/feeds", 
+         "https://www.googleapis.com/auth/spreadsheets",
+         "https://www.googleapis.com/auth/drive.file",
+         "https://www.googleapis.com/auth/drive"]
 
-    # escopo
-    scope = ["https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive.file",
-            "https://www.googleapis.com/auth/drive"]
-
-    # autenticação
-    creds = ServiceAccountCredentials.from_json_keyfile_name(api_info.credentials, scope)
+try:
+    # teste de autenticação
+    creds = ServiceAccountCredentials.from_json_keyfile_name(dados_api.credentials, scope)
     client = gspread.authorize(creds)
 
-    # leitura do CSV
-    df3 = pd.read_csv('csv/table_carts.csv')
+    
+    df = pd.read_csv('csv/pedidos_complete.csv')
 
-    # tratamento adicional (dados nulos e tendendo ao infinito)
-    df3.replace([np.inf, -np.inf], np.nan, inplace=True)
-    df3.fillna(0, inplace=True)
+    # Tratamento adicional (dados nulos e tendendo ao infinito)
+    
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.fillna(0, inplace=True)
 
-    # atualizando a planilha
-    spreadsheet_id = api_info.spreadsheetid
-    sheet = client.open_by_key(spreadsheet_id)
+    
+    spreadsheet_id = '15Arw0PpMMwRLUBdkVEKbshJwrTB3i1b1VgaB4gli2x4'
 
-    # selecionando a primeira aba da planilha (0)
-    worksheet = sheet.get_worksheet(0)
+    try:
+        sheet = client.open_by_key(spreadsheet_id)
 
-    # enviando os dados do csv para a planilha 'Carrinhos_Abandonados'
-    worksheet.update([df3.columns.values.tolist()] + df3.values.tolist())
+        worksheet = sheet.get_worksheet(0)
 
-
-# Agendamento da Execução
-schedule.every(1).minutes.do(fetch)
-
-
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+        worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+        print("Dados atualizados com sucesso na planilha.")
+    
+    except gspread.SpreadsheetNotFound:
+        print(f"Planilha com ID '{spreadsheet_id}' não foi encontrada.")
+    except gspread.exceptions.APIError as e:
+        print(f"Erro na API do Google Sheets: {e}")
+    except PermissionError:
+        print("Erro de permissão ao acessar a planilha. Verifique se o arquivo JSON tem as permissões corretas.")
+    
+except FileNotFoundError:
+    print("Arquivo de credenciais JSON não encontrado.")
+except ValueError as e:
+    print(f"Erro no arquivo de credenciais JSON: {e}")
+except Exception as e:
+    print(f"Ocorreu um erro inesperado: {e}")
