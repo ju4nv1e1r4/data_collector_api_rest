@@ -28,6 +28,3 @@ Este repositório contém um script Python para coletar e processar dados de ped
 
 ### Automação com Schedule
 O script etl.py utiliza a biblioteca schedule para ser executado automaticamente a cada 1 minuto.
-
-### Sobre o projeto
-Este projeto de ETL foi desenvolvido como um serviço prestado para a Vocaliza Digital.
